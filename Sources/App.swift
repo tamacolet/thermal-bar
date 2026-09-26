@@ -1,4 +1,5 @@
 import AppKit
+import ServiceManagement
 import SwiftUI
 
 @main
@@ -17,6 +18,7 @@ struct ThermalBarApp: App {
 
 struct PanelView: View {
     @ObservedObject var m: Monitor
+    @State private var loginTick = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -43,6 +45,16 @@ struct PanelView: View {
                 }
             }
             row("電力モード", powerText)
+            Toggle("ログイン時に起動", isOn: Binding(
+                get: { SMAppService.mainApp.status == .enabled },
+                set: { on in
+                    try? on ? SMAppService.mainApp.register() : SMAppService.mainApp.unregister()
+                    loginTick.toggle()
+                }))
+                .id(loginTick)
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .foregroundStyle(.secondary)
             Divider()
             HStack {
                 Spacer()

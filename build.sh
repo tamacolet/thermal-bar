@@ -67,9 +67,13 @@ EOF
 codesign --force -s - "build/$APP.app" >/dev/null
 
 if [ "$1" = "--release" ]; then
-  rm -f build/ThermalBar.zip
-  ditto -c -k --keepParent "build/$APP.app" build/ThermalBar.zip
-  echo "built: build/ThermalBar.zip"
+  # 開くと「アプリケーション」へドラッグするだけの標準的な dmg を作る
+  rm -rf build/dmg build/ThermalBar.dmg
+  mkdir -p build/dmg
+  cp -R "build/$APP.app" build/dmg/
+  ln -s /Applications build/dmg/Applications
+  hdiutil create -volname "$APP" -srcfolder build/dmg -format UDZO -ov build/ThermalBar.dmg >/dev/null
+  echo "built: build/ThermalBar.dmg"
 else
   rm -rf "$HOME/Applications/$APP.app"
   cp -R "build/$APP.app" "$HOME/Applications/$APP.app"

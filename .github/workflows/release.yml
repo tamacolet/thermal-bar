@@ -1,0 +1,38 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install macmon
+        run: brew install macmon
+
+      - name: Build release zip
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          [ "$GITHUB_REF_TYPE" = "tag" ] || V=""
+          VERSION="$V" BUILD_NUMBER="${GITHUB_RUN_NUMBER:-1}" ./build.sh --release
+
+      - name: Create GitHub Release
+        if: github.event_name == 'push'
+        run: gh release create "$GITHUB_REF_NAME" build/ThermalBar.zip --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Upload artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ThermalBar
+          path: build/ThermalBar.zip

@@ -12,6 +12,9 @@ func temp(_ label: String, _ v: Double) {
 
 print("熱レベル: \(tb_thermal_level())  (0=Nominal 1=Moderate 2=Heavy 3=Trapping 4=Sleeping)")
 
+let (pn0, pn1) = perfLevelNames()
+print("コア群ラベル: \(pn0) / \(pn1)")
+
 _ = tb_smc_init()
 print("SMC Taキー数: \(tb_smc_ta_count())")
 for i in 0..<tb_smc_ta_count() {
@@ -31,7 +34,9 @@ temp("SSD NAND CH0 temp", tb_hid_max("NAND CH0 temp"))
 
 let pipe = Pipe()
 let p = Process()
-p.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/macmon")
+let macmonPath = findMacmon() ?? "/opt/homebrew/bin/macmon"
+print("macmon パス: \(macmonPath)")
+p.executableURL = URL(fileURLWithPath: macmonPath)
 p.arguments = ["pipe", "-i", "1000"]
 p.standardOutput = pipe
 p.standardError = FileHandle.nullDevice

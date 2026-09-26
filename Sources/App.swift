@@ -1,24 +1,103 @@
 import AppKit
+import Combine
 import ServiceManagement
 import SwiftUI
 
 @main
-struct ThermalBarApp: App {
-    @StateObject private var monitor = Monitor()
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private let monitor = Monitor()
+    private var statusItem: NSStatusItem?
+    private var popover: NSPopover?
+    private var cancellables = Set<AnyCancellable>()
 
-    var body: some Scene {
-        MenuBarExtra {
-            PanelView(m: monitor)
-        } label: {
-            Text(monitor.title)
+    static func main() {
+        let app = NSApplication.shared
+        let delegate = AppDelegate()
+        app.delegate = delegate
+        app.setActivationPolicy(.accessory)
+        app.run()
+    }
+
+    func applicationDidFinishLaunching(_: Notification) {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem = item
+        if let b = item.button {
+            b.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+            b.title = monitor.title
+            b.target = self
+            b.action = #selector(handleClick(_:))
+            b.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
-        .menuBarExtraStyle(.window)
+
+        let p = NSPopover()
+        let hc = NSHostingController(rootView: PanelView(m: monitor))
+        hc.sizingOptions = .preferredContentSize
+        p.contentViewController = hc
+        p.behavior = .transient
+        popover = p
+
+        Publishers.CombineLatest(monitor.$level, monitor.$chipAvg)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.statusItem?.button?.title = self?.monitor.title ?? ""
+            }
+            .store(in: &cancellables)
+    }
+
+    @objc private func handleClick(_: NSStatusBarButton) {
+        let e = NSApp.currentEvent
+        if e?.type == .rightMouseUp ||
+            (e?.type == .leftMouseUp && e?.modifierFlags.contains(.control) == true) {
+            showMenu()
+        } else {
+            togglePopover()
+        }
+    }
+
+    private func togglePopover() {
+        guard let b = statusItem?.button, let p = popover else { return }
+        if p.isShown {
+            p.performClose(nil)
+        } else {
+            monitor.refreshPowerMode()
+            p.show(relativeTo: b.bounds, of: b, preferredEdge: .minY)
+        }
+    }
+
+    private func showMenu() {
+        let menu = NSMenu()
+        let login = NSMenuItem(title: "ログイン時に起動",
+                               action: #selector(toggleLoginItem(_:)), keyEquivalent: "")
+        login.target = self
+        login.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        menu.addItem(login)
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "終了",
+                                action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        statusItem?.menu = menu
+        statusItem?.button?.performClick(nil)
+        statusItem?.menu = nil
+    }
+
+    @objc private func toggleLoginItem(_: NSMenuItem) {
+        do {
+            if SMAppService.mainApp.status == .enabled {
+                try SMAppService.mainApp.unregister()
+            } else {
+                try SMAppService.mainApp.register()
+            }
+        } catch {
+            NSApp.activate(ignoringOtherApps: true)
+            let a = NSAlert()
+            a.messageText = "ログイン時に起動を変更できませんでした"
+            a.informativeText = error.localizedDescription
+            a.runModal()
+        }
     }
 }
 
 struct PanelView: View {
     @ObservedObject var m: Monitor
-    @State private var loginTick = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -31,8 +110,8 @@ struct PanelView: View {
             row("SSD", t(m.ssd))
             row("本体内部", t(m.internalMax))
             section("チップの動き")
-            row("最速コア", usage(m.s.pUsage, m.s.pFreq))
-            row("高性能コア", usage(m.s.eUsage, m.s.eFreq))
+            row(m.perfName0, usage(m.s.pUsage, m.s.pFreq))
+            row(m.perfName1, usage(m.s.eUsage, m.s.eFreq))
             row("GPU", usage(m.s.gUsage, m.s.gFreq))
             row("消費電力", m.s.sysPower.isNaN ? "—" : String(format: "%.1fW", m.s.sysPower))
             section("ファン・電源")
@@ -45,22 +124,6 @@ struct PanelView: View {
                 }
             }
             row("電力モード", powerText)
-            Toggle("ログイン時に起動", isOn: Binding(
-                get: { SMAppService.mainApp.status == .enabled },
-                set: { on in
-                    try? on ? SMAppService.mainApp.register() : SMAppService.mainApp.unregister()
-                    loginTick.toggle()
-                }))
-                .id(loginTick)
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                .foregroundStyle(.secondary)
-            Divider()
-            HStack {
-                Spacer()
-                Button("終了") { NSApplication.shared.terminate(nil) }
-                Spacer()
-            }
         }
         .padding(10)
         .frame(width: 260)

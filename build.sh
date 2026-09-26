@@ -17,9 +17,27 @@ fi
 
 $SWIFT Sources/App.swift Sources/Monitor.swift Sources/Sensors.swift build/sensors.o -o "build/$APP"
 
-mkdir -p "build/$APP.app/Contents/MacOS"
+rm -rf "build/$APP.app"
+mkdir -p "build/$APP.app/Contents/MacOS" "build/$APP.app/Contents/Resources"
 cp "build/$APP" "build/$APP.app/Contents/MacOS/$APP"
-cat > "build/$APP.app/Contents/Info.plist" <<'EOF'
+
+# macmon を同梱（他人のMacで brew 不要にするため）。見つからなければ警告して続行。
+MACMON="$(command -v macmon || true)"
+if [ -z "$MACMON" ] && [ -x /opt/homebrew/bin/macmon ]; then
+  MACMON=/opt/homebrew/bin/macmon
+fi
+if [ -n "$MACMON" ]; then
+  cp -L "$MACMON" "build/$APP.app/Contents/Resources/macmon"
+  MACMON_PREFIX="$(brew --prefix macmon 2>/dev/null || true)"
+  if [ -n "$MACMON_PREFIX" ] && [ -f "$MACMON_PREFIX/LICENSE" ]; then
+    cp "$MACMON_PREFIX/LICENSE" "build/$APP.app/Contents/Resources/macmon-LICENSE"
+  fi
+  codesign --force -s - "build/$APP.app/Contents/Resources/macmon" >/dev/null
+else
+  echo "warning: macmon が見つかりません。同梱なしでビルドします" >&2
+fi
+
+cat > "build/$APP.app/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -35,9 +53,9 @@ cat > "build/$APP.app/Contents/Info.plist" <<'EOF'
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
+	<string>${VERSION:-1.0}</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>${BUILD_NUMBER:-1}</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>LSUIElement</key>
@@ -47,6 +65,13 @@ cat > "build/$APP.app/Contents/Info.plist" <<'EOF'
 EOF
 
 codesign --force -s - "build/$APP.app" >/dev/null
-rm -rf "$HOME/Applications/$APP.app"
-cp -R "build/$APP.app" "$HOME/Applications/$APP.app"
-echo "built: $HOME/Applications/$APP.app"
+
+if [ "$1" = "--release" ]; then
+  rm -f build/ThermalBar.zip
+  ditto -c -k --keepParent "build/$APP.app" build/ThermalBar.zip
+  echo "built: build/ThermalBar.zip"
+else
+  rm -rf "$HOME/Applications/$APP.app"
+  cp -R "build/$APP.app" "$HOME/Applications/$APP.app"
+  echo "built: $HOME/Applications/$APP.app"
+fi

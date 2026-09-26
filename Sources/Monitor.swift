@@ -12,11 +12,14 @@ final class Monitor: ObservableObject {
     @Published private(set) var s = MacmonSample()
     @Published private(set) var powerMode = -1
 
+    let perfName0: String
+    let perfName1: String
+
     private var proc: Process?
     private var pending = Data()
     private var retry: Timer?
     private var stopping = false
-    private let macmonPath = "/opt/homebrew/bin/macmon"
+    private let macmonPath: String?
 
     var title: String {
         let dot = level < 0 ? "⚪" : level == 0 ? "🟢" : level == 1 ? "🟡" : "🔴"
@@ -24,6 +27,8 @@ final class Monitor: ObservableObject {
     }
 
     init() {
+        (perfName0, perfName1) = perfLevelNames()
+        macmonPath = findMacmon()
         tb_smc_init()
         poll()
         refreshPowerMode()
@@ -70,11 +75,11 @@ final class Monitor: ObservableObject {
     // ---- macmon 子プロセス ----
 
     private func startMacmon() {
-        guard !stopping, proc == nil,
-              FileManager.default.isExecutableFile(atPath: macmonPath) else { return }
+        guard !stopping, proc == nil, let path = macmonPath,
+              FileManager.default.isExecutableFile(atPath: path) else { return }
         let p = Process()
         let pipe = Pipe()
-        p.executableURL = URL(fileURLWithPath: macmonPath)
+        p.executableURL = URL(fileURLWithPath: path)
         p.arguments = ["pipe", "-i", "2000"]
         p.standardOutput = pipe
         p.standardError = FileHandle.nullDevice
@@ -123,26 +128,31 @@ final class Monitor: ObservableObject {
         gpuTemp = v.gpuTemp
     }
 
-    // ---- 電力モード（起動時とパネル表示時のみ呼ぶ） ----
+    // ---- 電力モード（起動時とパネル表示時に読む） ----
 
     func refreshPowerMode() {
         DispatchQueue.global(qos: .utility).async {
+            let g = Self.pmset(["-g"])
             var mode = -1
-            let p = Process(), pipe = Pipe()
-            p.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
-            p.arguments = ["-g"]
-            p.standardOutput = pipe
-            p.standardError = FileHandle.nullDevice
-            do {
-                try p.run()
-                let d = pipe.fileHandleForReading.readDataToEndOfFile()
-                if let out = String(data: d, encoding: .utf8),
-                   let r = out.range(of: #"powermode\s+(-?\d+)"#, options: .regularExpression),
-                   let v = Int(out[r].split(whereSeparator: \.isWhitespace).last ?? "") {
-                    mode = v
-                }
-            } catch {}
-            DispatchQueue.main.async { self.powerMode = mode }
+            if let r = g.range(of: #"powermode\s+(-?\d+)"#, options: .regularExpression),
+               let v = Int(g[r].split(whereSeparator: \.isWhitespace).last ?? "") {
+                mode = v
+            }
+            DispatchQueue.main.async {
+                self.powerMode = mode
+            }
         }
+    }
+
+    private static func pmset(_ args: [String]) -> String {
+        let p = Process(), pipe = Pipe()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+        p.arguments = args
+        p.standardOutput = pipe
+        p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return "" }
+        let d = pipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return String(decoding: d, as: UTF8.self)
     }
 }

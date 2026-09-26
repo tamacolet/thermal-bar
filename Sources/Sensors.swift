@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 struct FanInfo {
@@ -44,4 +45,39 @@ func parseMacmonLine(_ line: String) -> MacmonSample? {
                                   max: Int(num($0["max_rpm"]))) }
     }
     return s
+}
+
+// ---- コア群の表示名 ----
+
+private func sysctlString(_ name: String) -> String? {
+    var size = 0
+    guard sysctlbyname(name, nil, &size, nil, 0) == 0, size > 0 else { return nil }
+    var buf = [CChar](repeating: 0, count: size)
+    guard sysctlbyname(name, &buf, &size, nil, 0) == 0 else { return nil }
+    return String(cString: buf)
+}
+
+private func perfLabel(_ raw: String?, _ fallback: String) -> String {
+    switch raw {
+    case "Super": return "最速コア"
+    case "Performance": return "高性能コア"
+    case "Efficiency": return "省電力コア"
+    case .some(let s): return s
+    case .none: return fallback
+    }
+}
+
+/// macmon の pcpu_*=perflevel0, ecpu_*=perflevel1 に対応する表示名
+func perfLevelNames() -> (String, String) {
+    (perfLabel(sysctlString("hw.perflevel0.name"), "コア群1"),
+     perfLabel(sysctlString("hw.perflevel1.name"), "コア群2"))
+}
+
+/// 同梱の macmon を最優先、無ければ Homebrew の定番パスを探す
+func findMacmon() -> String? {
+    [Bundle.main.path(forResource: "macmon", ofType: nil),
+     "/opt/homebrew/bin/macmon",
+     "/usr/local/bin/macmon"]
+        .compactMap { $0 }
+        .first { FileManager.default.isExecutableFile(atPath: $0) }
 }

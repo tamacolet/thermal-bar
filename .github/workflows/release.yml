@@ -26,7 +26,15 @@ jobs:
 
       - name: Create GitHub Release
         if: github.event_name == 'push'
-        run: gh release create "$GITHUB_REF_NAME" build/ThermalBar.dmg --generate-notes
+        run: |
+          if response=$(gh api --include --silent "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}"); then
+            echo "Release ${GITHUB_REF_NAME} already exists; leaving release and assets unchanged."
+          elif [ "$(printf '%s\n' "$response" | awk 'NR == 1 {print $2}')" = "404" ]; then
+            gh release create "$GITHUB_REF_NAME" build/ThermalBar.dmg --generate-notes
+          else
+            echo "::error::Could not check release ${GITHUB_REF_NAME}; refusing to create it."
+            exit 1
+          fi
         env:
           GH_TOKEN: ${{ github.token }}
 
